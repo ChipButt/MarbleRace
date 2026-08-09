@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>Marble Run Race</title>
+<style>
+  :root {
+    --bg1:#101426; --bg2:#20284a; --panel:#171d34cc; --text:#f8fbff;
+    --muted:#b9c3d9; --accent:#ffd84a; --line:#3b4668;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:linear-gradient(160deg,var(--bg1),var(--bg2));color:var(--text);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;overflow:hidden}
+  body{display:flex;justify-content:center;align-items:center;padding:max(10px,env(safe-area-inset-top)) 10px max(10px,env(safe-area-inset-bottom))}
+  .app{width:min(1100px,100%);height:min(760px,100%);display:grid;grid-template-rows:auto 1fr auto;gap:10px}
+  .topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--panel);backdrop-filter:blur(10px);padding:10px 14px;border:1px solid #ffffff17;border-radius:16px}
+  .title{font-size:clamp(18px,3vw,28px);font-weight:900;letter-spacing:.2px}
+  .sub{font-size:12px;color:var(--muted)}
+  .timer{font-variant-numeric:tabular-nums;font-size:clamp(18px,3vw,28px);font-weight:900;color:var(--accent)}
+  .stage{position:relative;min-height:0;border-radius:18px;overflow:hidden;border:1px solid #ffffff16;background:#0c1020}
+  canvas{width:100%;height:100%;display:block}
+  .overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:auto;touch-action:manipulation}
+  .card{background:#11172be8;border:1px solid #ffffff22;box-shadow:0 20px 60px #0008;border-radius:20px;padding:22px;text-align:center;max-width:420px;width:calc(100% - 28px)}
+  .card h2{margin:0 0 8px;font-size:clamp(24px,6vw,42px)}
+  .card p{margin:0 0 16px;color:var(--muted);line-height:1.45}
+  button{border:0;touch-action:manipulation;-webkit-tap-highlight-color:transparent;border-radius:14px;padding:14px 22px;background:var(--accent);color:#171717;font-weight:900;font-size:17px;cursor:pointer;box-shadow:0 8px 24px #0005}
+  button:active{transform:translateY(1px)}
+  .hud{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+  .marbleRow{background:var(--panel);border:1px solid #ffffff13;border-radius:14px;padding:8px 10px;display:flex;align-items:center;gap:8px;min-width:0}
+  .dot{width:18px;height:18px;border-radius:50%;box-shadow:inset -4px -4px 8px #0006,inset 4px 4px 6px #fff6;flex:0 0 auto}
+  .name{font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .place{margin-left:auto;color:var(--muted);font-weight:800}
+  .countdown{font-size:clamp(64px,15vw,150px);font-weight:1000;text-shadow:0 12px 40px #000;animation:pop .7s ease}
+  @keyframes pop{0%{transform:scale(.5);opacity:0}60%{transform:scale(1.15)}100%{transform:scale(1);opacity:1}}
+  .winnerName{color:var(--accent)} .errorText{color:#ff9d9d;font-size:13px;margin-top:10px;white-space:pre-wrap}
+  @media (max-width:650px){
+    .app{height:100%}
+    .hud{grid-template-columns:repeat(2,1fr)}
+    .sub{display:none}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <div>
+      <div class="title">MARBLE RUN RACE</div>
+      <div class="sub">Four marbles. One winner. ~30 seconds.</div>
+    </div>
+    <div class="timer" id="timer">00.0</div>
+  </div>
+
+  <div class="stage" id="stage">
+    <canvas id="game"></canvas>
+    <div class="overlay" id="overlay">
+      <div class="card" id="startCard">
+        <h2>Ready to Race?</h2>
+        <p>Every run has slightly different bumps, gates and marble behaviour, so the winner can change each time.</p>
+        <button id="startBtn">START RACE</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="hud" id="hud"></div>
+</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const stage = document.getElementById('stage');
+  const overlay = document.getElementById('overlay');
+  const timerEl = document.getElementById('timer');
+  const hud = document.getElementById('hud');
+
+  const MARBLES = [
+    {name:'Ruby', color:'#ff3b5c'},
+    {name:'Azure', color:'#3ea0ff'},
+    {name:'Lime', color:'#70e35a'},
+    {name:'Gold', color:'#ffd23f'}
+  ];
+
+  let DPR=1,W=0,H=0,track=null,marbles=[],state='idle',startTime=0,last=0,raf=0,countdownN=3;
+  let finishOrder=[];
+
+  function resize(){
+    const r=stage.getBoundingClientRect();
+    DPR=Math.min(window.devicePixelRatio||1,2);
+    W=Math.max(320,Math.floor(r.width));
+    H=Math.max(360,Math.floor(r.height));
+    canvas.width=W*DPR; canvas.height=H*DPR;
+    ctx.setTransform(DPR,0,0,DPR,0,0);
+    buildTrack();
+    if(state==='idle') resetMarbles();
+  }
+  window.addEventListener('resize',resize);
+
+  function rnd(a,b){return a+Math.random()*(b-a)}
+  function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
+
+  function buildTrack(){
+    const margin=42;
+    const laneW=Math.min(90,W*0.11);
+    const cx=W/2;
+    const pts=[];
+    const N=34;
+    for(let i=0;i<N;i++){
+      const t=i/(N-1);
+      const y=margin + t*(H-margin*2);
+      const amp=W*0.24*(0.65+0.35*Math.sin(t*Math.PI));
+      const x=cx + Math.sin(t*Math.PI*4.7 + .2)*amp*0.65 + Math.sin(t*Math.PI*9.4)*amp*0.12;
+      pts.push({x:clamp(x,margin+laneW/2,W-margin-laneW/2),y});
+    }
+    pts[0].x=cx; pts[1].x=cx;
+    pts[N-1].x=cx; pts[N-2].x=cx;
+    let total=0;
+    for(let i=0;i<N;i++){
+      if(i){const dx=pts[i].x-pts[i-1].x,dy=pts[i].y-pts[i-1].y;total+=Math.hypot(dx,dy)}
+      pts[i].s=total;
+    }
+    const obstacles=[];
+    for(let k=4;k<N-4;k+=4){
+      obstacles.push({
+        s:pts[k].s + rnd(-20,20),
+        type:['bumper','gate','spinner'][Math.floor(Math.random()*3)],
+        phase:rnd(0,Math.PI*2),
+        strength:rnd(.65,1.25)
+      });
+    }
+    track={pts,total,laneW,obstacles};
+  }
+
+  function pointAt(s){
+    s=clamp(s,0,track.total);
+    const p=track.pts;
+    let i=1;
+    while(i<p.length && p[i].s<s)i++;
+    i=Math.min(i,p.length-1);
+    const a=p[i-1],b=p[i],span=b.s-a.s||1,t=(s-a.s)/span;
+    const x=a.x+(b.x-a.x)*t, y=a.y+(b.y-a.y)*t;
+    const dx=b.x-a.x,dy=b.y-a.y,L=Math.hypot(dx,dy)||1;
+    return {x,y,tx:dx/L,ty:dy/L,nx:-dy/L,ny:dx/L};
+  }
+
+  function resetMarbles(){
+    finishOrder=[];
+    marbles=MARBLES.map((m,i)=>({
+      ...m, s:0, lateral:(i-1.5)*14, v:0, seed:Math.random()*1000,
+      finished:false, finishTime:null, rank:i+1, wobble:rnd(0,Math.PI*2),
+      lastObs:-1
+    }));
+    updateHud();
+    timerEl.textContent='00.0';
+    draw();
+  }
+
+  function makeHud(){
+    hud.innerHTML='';
+    MARBLES.forEach((m,i)=>{
+      const row=document.createElement('div');
+      row.className='marbleRow';
+      row.innerHTML=`<span class="dot" style="background:${m.color}"></span><span class="name">${m.name}</span><span class="place" id="p${i}">${i+1}</span>`;
+      hud.appendChild(row);
+    });
+  }
+
+  function ordinal(n){return n===1?'1st':n===2?'2nd':n===3?'3rd':'4th'}
+  function updateHud(){
+    marbles.forEach((m,i)=>{
+      const el=document.getElementById('p'+i);
+      if(el) el.textContent=m.finished?ordinal(finishOrder.indexOf(i)+1):ordinal(m.rank);
+    });
+  }
+
+  function drawTrack(){
+    ctx.clearRect(0,0,W,H);
+    const g=ctx.createLinearGradient(0,0,0,H);
+    g.addColorStop(0,'#171b31'); g.addColorStop(1,'#080b15');
+    ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+
+    ctx.globalAlpha=.18;
+    for(let i=0;i<70;i++){
+      const x=(i*83)%W,y=(i*137)%H;
+      ctx.fillStyle='#a9b8ff';ctx.fillRect(x,y,2,2);
+    }
+    ctx.globalAlpha=1;
+
+    const p=track.pts;
+    ctx.lineJoin='round';ctx.lineCap='round';
+
+    ctx.beginPath();ctx.moveTo(p[0].x,p[0].y);
+    for(let i=1;i<p.length;i++)ctx.lineTo(p[i].x,p[i].y);
+    ctx.strokeStyle='#05070d';ctx.lineWidth=track.laneW+18;ctx.stroke();
+
+    const tg=ctx.createLinearGradient(0,0,W,0);
+    tg.addColorStop(0,'#66728c');tg.addColorStop(.5,'#aab4ca');tg.addColorStop(1,'#59637c');
+    ctx.strokeStyle=tg;ctx.lineWidth=track.laneW;ctx.stroke();
+
+    ctx.strokeStyle='#242b42';ctx.lineWidth=track.laneW-14;ctx.stroke();
+
+    ctx.setLineDash([8,10]);ctx.strokeStyle='#ffffff1b';ctx.lineWidth=2;ctx.stroke();ctx.setLineDash([]);
+
+    const st=pointAt(0);
+    ctx.fillStyle='#262d49';ctx.fillRect(st.x-track.laneW*.62,st.y-22,track.laneW*1.24,38);
+    ctx.fillStyle='#fff';ctx.font='900 12px system-ui';ctx.textAlign='center';ctx.fillText('START',st.x,st.y-5);
+
+    const f=pointAt(track.total);
+    ctx.save();ctx.translate(f.x,f.y);ctx.rotate(Math.atan2(f.ty,f.tx));
+    const cell=8;const width=track.laneW*.8;
+    for(let a=-width/2;a<width/2;a+=cell){
+      for(let b=-12;b<12;b+=cell){
+        const odd=((Math.floor((a+width/2)/cell)+Math.floor((b+12)/cell))%2);
+        ctx.fillStyle=odd?'#fff':'#111';
+        ctx.fillRect(b,a,cell,cell);
+      }
+    }
+    ctx.restore();
+
+    track.obstacles.forEach((o,idx)=>{
+      const q=pointAt(o.s);
+      if(o.type==='bumper'){
+        ctx.fillStyle='#ff6b39';ctx.beginPath();ctx.arc(q.x+q.nx*track.laneW*.18,q.y+q.ny*track.laneW*.18,10,0,Math.PI*2);ctx.fill();
+        ctx.fillStyle='#ffd8c8';ctx.beginPath();ctx.arc(q.x+q.nx*track.laneW*.18-3,q.y+q.ny*track.laneW*.18-3,3,0,Math.PI*2);ctx.fill();
+      }else if(o.type==='gate'){
+        ctx.strokeStyle='#f2d15c';ctx.lineWidth=5;ctx.beginPath();
+        ctx.moveTo(q.x-q.nx*track.laneW*.34,q.y-q.ny*track.laneW*.34);
+        ctx.lineTo(q.x+q.nx*track.laneW*.34,q.y+q.ny*track.laneW*.34);ctx.stroke();
+        ctx.fillStyle='#f2d15c';ctx.beginPath();ctx.arc(q.x,q.y,7,0,Math.PI*2);ctx.fill();
+      }else{
+        const ang=performance.now()/700+o.phase;
+        ctx.save();ctx.translate(q.x,q.y);ctx.rotate(ang);
+        ctx.strokeStyle='#79e0ff';ctx.lineWidth=5;
+        ctx.beginPath();ctx.moveTo(-track.laneW*.27,0);ctx.lineTo(track.laneW*.27,0);ctx.stroke();
+        ctx.fillStyle='#79e0ff';ctx.beginPath();ctx.arc(0,0,7,0,Math.PI*2);ctx.fill();
+        ctx.restore();
+      }
+    });
+  }
+
+  function drawMarble(m){
+    const q=pointAt(m.s);
+    const x=q.x+q.nx*m.lateral,y=q.y+q.ny*m.lateral;
+    const r=12;
+    ctx.save();
+    ctx.shadowColor='#000b';ctx.shadowBlur=8;ctx.shadowOffsetY=5;
+    const grad=ctx.createRadialGradient(x-r*.35,y-r*.4,2,x,y,r);
+    grad.addColorStop(0,'#fff');grad.addColorStop(.18,m.color);grad.addColorStop(1,'#141414');
+    ctx.fillStyle=grad;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();
+    ctx.shadowColor='transparent';
+    ctx.globalAlpha=.35;ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(x-4,y-5,3,0,Math.PI*2);ctx.fill();
+    ctx.restore();
+  }
+
+  function draw(){
+    if(!track)return;
+    drawTrack();
+    const sorted=[...marbles].sort((a,b)=>a.s-b.s);
+    sorted.forEach(drawMarble);
+  }
+
+  function update(dt,now){
+    if(state!=='racing')return;
+    const elapsed=(now-startTime)/1000;
+    timerEl.textContent=elapsed.toFixed(1).padStart(4,'0');
+
+    const base=track.total/30.0;
+
+    marbles.forEach((m,idx)=>{
+      if(m.finished)return;
+      const q=pointAt(m.s);
+      const wave=Math.sin(elapsed*.85+m.seed)*0.065 + Math.sin(elapsed*1.8+m.seed*.37)*0.035;
+      let desired=base*(1+wave);
+
+      const avg=marbles.reduce((a,x)=>a+x.s,0)/4;
+      desired*=1+clamp((avg-m.s)/track.total,-.03,.05);
+
+      track.obstacles.forEach((o,oi)=>{
+        const d=Math.abs(m.s-o.s);
+        if(d<20 && m.lastObs!==oi){
+          m.lastObs=oi;
+          if(o.type==='bumper'){
+            m.lateral += (Math.random()<.5?-1:1)*rnd(10,26)*o.strength;
+            m.v *= rnd(.82,1.03);
+          }else if(o.type==='gate'){
+            m.v *= rnd(.78,1.06);
+            m.lateral += rnd(-16,16);
+          }else{
+            m.v *= rnd(.84,1.09);
+            m.lateral += rnd(-22,22);
+          }
+        }
+        if(d>35 && m.lastObs===oi)m.lastObs=-1;
+      });
+
+      m.lateral += Math.sin(elapsed*2.3+m.wobble)*dt*7;
+      m.lateral *= Math.pow(.987,dt*60);
+      const lim=track.laneW*.34;
+      if(Math.abs(m.lateral)>lim){
+        m.lateral=clamp(m.lateral,-lim,lim);
+        m.v*=.97;
+      }
+
+      if(!m.v)m.v=base*rnd(.88,.96);
+      m.v += (desired-m.v)*dt*1.35;
+      m.v += rnd(-1,1)*base*.018*dt*10;
+
+      marbles.forEach((n,j)=>{
+        if(j===idx||n.finished)return;
+        const ds=m.s-n.s, dl=m.lateral-n.lateral;
+        if(Math.abs(ds)<17 && Math.abs(dl)<20){
+          const push=(18-Math.abs(ds))*0.03;
+          m.v += Math.sign(ds||1)*push;
+          m.lateral += Math.sign(dl||rnd(-1,1))*dt*12;
+        }
+      });
+
+      m.s += Math.max(base*.65,m.v)*dt;
+      if(m.s>=track.total){
+        m.s=track.total;m.finished=true;m.finishTime=elapsed;finishOrder.push(idx);
+        if(finishOrder.length===4) endRace();
+      }
+    });
+
+    const order=marbles.map((m,i)=>({i,s:m.s,fin:m.finished,ft:m.finishTime??999})).sort((a,b)=>{
+      if(a.fin&&b.fin)return a.ft-b.ft;
+      if(a.fin)return -1;if(b.fin)return 1;return b.s-a.s;
+    });
+    order.forEach((o,k)=>marbles[o.i].rank=k+1);
+    updateHud();
+  }
+
+  function loop(now){
+    const dt=Math.min(.033,(now-last)/1000||.016);last=now;
+    update(dt,now);draw();
+    if(state==='racing')raf=requestAnimationFrame(loop);
+  }
+
+  async function startRace(){
+    if(state!=='idle'&&state!=='done')return;
+    buildTrack(); resetMarbles(); state='countdown';
+    overlay.style.display='flex';
+    for(let n=3;n>=1;n--){
+      overlay.innerHTML=`<div class="countdown">${n}</div>`;
+      await new Promise(r=>setTimeout(r,700));
+    }
+    overlay.innerHTML=`<div class="countdown">GO!</div>`;
+    await new Promise(r=>setTimeout(r,450));
+    overlay.style.display='none';
+    state='racing'; startTime=performance.now();last=startTime;
+    marbles.forEach(m=>m.v=track.total/30*rnd(.88,.98));
+    raf=requestAnimationFrame(loop);
+  }
+
+  function endRace(){
+    state='done';
+    cancelAnimationFrame(raf);
+    const winner=marbles[finishOrder[0]];
+    const t=winner.finishTime.toFixed(1);
+    timerEl.textContent=marbles[finishOrder[3]].finishTime.toFixed(1);
+    overlay.style.display='flex';
+    overlay.innerHTML=`<div class="card">
+      <h2><span class="winnerName">${winner.name}</span> Wins!</h2>
+      <p>Winning time: <strong>${t}s</strong><br>All four marbles finished in ${marbles[finishOrder[3]].finishTime.toFixed(1)}s.</p>
+      <button id="againBtn">RACE AGAIN</button>
+    </div>`;
+    const again=document.getElementById('againBtn');
+    const goAgain=(ev)=>{
+      if(ev){ev.preventDefault();ev.stopPropagation();}
+      Promise.resolve(startRace()).catch(showError);
+    };
+    again.addEventListener('click',goAgain,{passive:false});
+    again.addEventListener('touchend',goAgain,{passive:false});
+    draw();
+  }
+
+  function showError(err){
+    console.error(err);
+    overlay.style.display='flex';
+    overlay.innerHTML=`<div class="card">
+      <h2>Race Error</h2>
+      <p>The game hit an error before the race could start.</p>
+      <div class="errorText">${String(err && (err.message || err) || 'Unknown error')}</div>
+      <p style="margin-top:14px">Reload the page and try again.</p>
+    </div>`;
+  }
+
+  function bindStartButton(){
+    const btn=document.getElementById('startBtn');
+    if(!btn) return;
+    const go=(ev)=>{
+      if(ev){ ev.preventDefault(); ev.stopPropagation(); }
+      Promise.resolve(startRace()).catch(showError);
+    };
+    btn.addEventListener('click',go,{passive:false});
+    btn.addEventListener('touchend',go,{passive:false});
+  }
+
+  window.addEventListener('error',e=>showError(e.error || e.message));
+  window.addEventListener('unhandledrejection',e=>showError(e.reason));
+
+  bindStartButton();
+  makeHud();
+  resize();
+})();
+</script>
+</body>
+</html>
