@@ -14,7 +14,7 @@
   const TRACK_HALF=92, R=17;
   const GRAVITY=150, AIR_DRAG=0.18;
   const WALL_RESTITUTION=0.70, BALL_RESTITUTION=0.91, PEG_RESTITUTION=0.93;
-  const STALL_SECONDS=9, RACE_CAP=80;
+  const STALL_SECONDS=10;
 
   const COURSES=[
     {
@@ -123,16 +123,25 @@
     c.pegs.forEach((frac,k)=>{
       const s=totalLength*frac,q=pointAtS(s),t=smoothTangentAtS(s,50),nx=-t.y,ny=t.x;
       if(k%2===0){
-        pegs.push({x:q.x+nx*34,y:q.y+ny*34,r:11,s});
-        pegs.push({x:q.x-nx*34+t.x*76,y:q.y-ny*34+t.y*76,r:11,s:s+76});
+        const side=(k%4===0)?1:-1;
+        pegs.push({
+          x:q.x+nx*TRACK_HALF*side,
+          y:q.y+ny*TRACK_HALF*side,
+          r:9,s,wallMounted:true
+        });
+        pegs.push({
+          x:q.x-nx*26*side+t.x*82,
+          y:q.y-ny*26*side+t.y*82,
+          r:10,s:s+82
+        });
       } else {
-        pegs.push({x:q.x,y:q.y,r:14,s});
+        pegs.push({x:q.x,y:q.y,r:12,s});
       }
     });
 
     c.funnels.forEach((frac,i)=>{
       const s=totalLength*frac,q=pointAtS(s),t=smoothTangentAtS(s,70),nx=-t.y,ny=t.x;
-      const scale=c.funnelSize||1, outerR=150*scale, holeR=27*scale;
+      const scale=c.funnelSize||1, outerR=150*scale, holeR=30*scale;
       const side=i%2===0?1:-1;
       const offset=46*side;
       funnels.push({
@@ -247,11 +256,11 @@
     let dx=m.x-f.x,dy=m.y-f.y,d=Math.hypot(dx,dy)||1;
     let rx=dx/d,ry=dy/d;
 
-    const bowlOmega2=7.6;
+    const bowlOmega2=18.0;
     m.vx+=-dx*bowlOmega2*dt;
     m.vy+=-dy*bowlOmega2*dt;
 
-    const damping=Math.exp(-.024*dt);
+    const damping=Math.exp(-.085*dt);
     m.vx*=damping;m.vy*=damping;
 
     m.x+=m.vx*dt;m.y+=m.vy*dt;
@@ -264,8 +273,8 @@
       m.x-=rx*pen;m.y-=ry*pen;
       const vn=m.vx*rx+m.vy*ry;
       if(vn>0){
-        m.vx-=(1+0.72)*vn*rx;
-        m.vy-=(1+0.72)*vn*ry;
+        m.vx-=(1+0.78)*vn*rx;
+        m.vy-=(1+0.78)*vn*ry;
       }
     }
 
@@ -274,7 +283,7 @@
     if(d<f.holeR+R*.28){
       const exitS=Math.min(totalLength-70,f.s+155);
       const q=pointAtS(exitS),t=smoothTangentAtS(exitS,65);
-      const exitSpeed=Math.max(175,Math.hypot(m.vx,m.vy)*.88);
+      const exitSpeed=Math.max(190,Math.hypot(m.vx,m.vy)*.92);
       m.x=q.x;m.y=q.y;
       m.vx=t.x*exitSpeed;m.vy=t.y*exitSpeed;
       m.progress=exitS;
@@ -329,7 +338,6 @@
       }else if(elapsed-m.lastProgressAt>STALL_SECONDS&&Math.hypot(m.vx,m.vy)<40&&!m.funnel){
         m.finished=true;m.dnf=true;m.finishTime=elapsed;
       }
-      if(elapsed>=RACE_CAP&&!m.finished){m.finished=true;m.dnf=true;m.finishTime=elapsed}
     }
 
     const active=marbles.filter(m=>!m.finished).sort((a,b)=>b.progress-a.progress);
