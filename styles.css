@@ -16,4 +16,9 @@ canvas{width:100%;height:100%;display:block}
 button{border:0;border-radius:14px;padding:14px 22px;background:var(--accent);font-size:17px;font-weight:900;color:#171717;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}.resetBtn{padding:9px 12px;font-size:12px;background:#2b3550;color:#f7f9ff;border:1px solid #ffffff22}.row.finished{border-color:#ffffff35;background:#1b2940dd}.row.dnf{opacity:.62}.place.finished{color:#7df0a0}.place.dnf{color:#ff9d9d}
 .countdown{font-size:clamp(64px,15vw,150px);font-weight:1000;text-shadow:0 12px 40px #000}
 .hud{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}.row{background:var(--panel);border:1px solid #ffffff13;border-radius:12px;padding:7px 9px;display:flex;align-items:center;gap:7px;min-width:0}.dot{width:17px;height:17px;border-radius:50%;box-shadow:inset -4px -4px 7px #0007,inset 4px 4px 5px #fff6;flex:0 0 auto}.name{font-weight:800;overflow:hidden;text-overflow:ellipsis}.place{margin-left:auto;color:var(--muted);font-weight:900}.winner{color:var(--accent)}
-@media(max-width:650px){.hud{grid-template-columns:repeat(2,1fr)}.sub{display:none}.minimap{width:116px;height:150px;right:6px;top:6px}}
+.courseCard{max-width:680px;max-height:92%;overflow:auto}
+.courseGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:14px 0 16px}
+.courseChoice{background:#202b45;color:#f7f9ff;border:1px solid #ffffff22;padding:10px 12px;text-align:left;box-shadow:none}
+.courseChoice strong{display:block;font-size:14px}.courseChoice span{display:block;margin-top:3px;color:#aeb8cc;font-size:11px;font-weight:600;line-height:1.25}
+.courseChoice.selected{background:#3b4560;border-color:#ffd84a;box-shadow:inset 0 0 0 1px #ffd84a}
+@media(max-width:650px){.hud{grid-template-columns:repeat(2,1fr)}.sub{display:none}.minimap{width:116px;height:150px;right:6px;top:6px}.courseGrid{grid-template-columns:1fr}.courseCard{padding:15px}.courseChoice{padding:8px 10px}}
