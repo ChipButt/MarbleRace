@@ -13,7 +13,7 @@
 
   const TRACK_HALF=92, R=17;
   const GRAVITY=150, AIR_DRAG=0.18;
-  const WALL_RESTITUTION=0.68, BALL_RESTITUTION=0.91, PEG_RESTITUTION=0.82;
+  const WALL_RESTITUTION=0.70, BALL_RESTITUTION=0.91, PEG_RESTITUTION=0.93;
   const STALL_SECONDS=9, RACE_CAP=80;
 
   const COURSES=[
@@ -122,16 +122,16 @@
     c.pegs.forEach((frac,k)=>{
       const s=totalLength*frac,q=pointAtS(s),t=smoothTangentAtS(s,50),nx=-t.y,ny=t.x;
       if(k%2===0){
-        pegs.push({x:q.x+nx*37,y:q.y+ny*37,r:21,s});
-        pegs.push({x:q.x-nx*43+t.x*58,y:q.y-ny*43+t.y*58,r:21,s:s+58});
+        pegs.push({x:q.x+nx*48,y:q.y+ny*48,r:13,s});
+        pegs.push({x:q.x-nx*50+t.x*62,y:q.y-ny*50+t.y*62,r:13,s:s+62});
       } else {
-        pegs.push({x:q.x,y:q.y,r:29,s});
+        pegs.push({x:q.x,y:q.y,r:17,s});
       }
     });
 
     c.funnels.forEach((frac,i)=>{
       const s=totalLength*frac,q=pointAtS(s),t=smoothTangentAtS(s,70),nx=-t.y,ny=t.x;
-      const scale=c.funnelSize||1, outerR=150*scale, holeR=24*scale;
+      const scale=c.funnelSize||1, outerR=150*scale, holeR=27*scale;
       const side=i%2===0?1:-1;
       const offset=46*side;
       funnels.push({
@@ -246,11 +246,11 @@
     let dx=m.x-f.x,dy=m.y-f.y,d=Math.hypot(dx,dy)||1;
     let rx=dx/d,ry=dy/d;
 
-    const radialG=250 + 185*(d/f.outerR);
+    const radialG=420 + 360*(d/f.outerR);
     m.vx+=-rx*radialG*dt;
     m.vy+=-ry*radialG*dt;
 
-    const damping=Math.exp(-.16*dt);
+    const damping=Math.exp(-.055*dt);
     m.vx*=damping;m.vy*=damping;
 
     m.x+=m.vx*dt;m.y+=m.vy*dt;
@@ -273,7 +273,7 @@
     if(d<f.holeR+R*.28){
       const exitS=Math.min(totalLength-70,f.s+155);
       const q=pointAtS(exitS),t=smoothTangentAtS(exitS,65);
-      const exitSpeed=Math.max(145,Math.hypot(m.vx,m.vy)*.76);
+      const exitSpeed=Math.max(175,Math.hypot(m.vx,m.vy)*.88);
       m.x=q.x;m.y=q.y;
       m.vx=t.x*exitSpeed;m.vy=t.y*exitSpeed;
       m.progress=exitS;
