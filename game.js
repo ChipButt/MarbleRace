@@ -53,7 +53,7 @@
   let path=[],totalLength=0,walls=[],pegs=[],funnels=[],trackMesh={left:[],right:[]},bounds={minX:0,minY:0,maxX:1,maxY:1};
   let marbles=[],finishOrder=[],selectedCourse=0;
   let state='idle',startTime=0,lastTime=0,raf=0,raceToken=0;
-  let camX=0,camY=0,camAngle=0,camS=0,camLeaderId=0;
+  let camX=0,camY=0,camAngle=0,camS=0,camLeaderId=0,camHeight=250;
   let audioCtx=null,lastClink=new Map();
 
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
@@ -355,25 +355,62 @@
   }
 
   function updateCamera(){
-    const lead=currentLeader(),focusS=lead.progress;
+    const lead=currentLeader();
+    const active=marbles.filter(m=>!m.finished);
+    const leaderS=lead.progress;
+    const activeProgress=active.map(m=>m.progress);
+    const tailS=activeProgress.length?Math.min(...activeProgress):leaderS;
+    const packSpread=clamp(leaderS-tailS,0,900);
+    const framingBack=clamp(packSpread*.22,0,170);
+    const focusS=clamp(leaderS-framingBack,0,totalLength);
+
+    const lookFrom=pointAtS(clamp(focusS-80,0,totalLength));
+    const lookTo=pointAtS(clamp(focusS+430,0,totalLength));
+    const ldx=lookTo.x-lookFrom.x,ldy=lookTo.y-lookFrom.y;
+    const LL=Math.hypot(ldx,ldy)||1;
+    const t={x:ldx/LL,y:ldy/LL};
+
     const centre=pointAtS(focusS);
-    const t=smoothTangentAtS(focusS,190);
+    const cameraBack=300+clamp(packSpread*.12,0,95);
+    const targetX=centre.x-t.x*cameraBack;
+    const targetY=centre.y-t.y*cameraBack;
     const targetAngle=Math.atan2(t.y,t.x);
-    const targetX=centre.x-t.x*300,targetY=centre.y-t.y*300;
-    camX+=(targetX-camX)*.026;
-    camY+=(targetY-camY)*.026;
+    const targetHeight=250+clamp(packSpread*.16,0,110);
+
+    camX+=(targetX-camX)*.024;
+    camY+=(targetY-camY)*.024;
+    camHeight+=(targetHeight-camHeight)*.022;
+
     let da=((targetAngle-camAngle+Math.PI*3)%(Math.PI*2))-Math.PI;
-    da=clamp(da,-.010,.010);
+    da=clamp(da,-.0085,.0085);
     camAngle+=da;
-    camS+=(focusS-camS)*.035;
+    camS+=(focusS-camS)*.032;
   }
 
   function project(x,y){
-    const fx=Math.cos(camAngle),fy=Math.sin(camAngle),rx=-fy,ry=fx;
-    const dx=x-camX,dy=y-camY,forward=dx*fx+dy*fy,lateral=dx*rx+dy*ry;
-    const view=1060,u=clamp(forward/view,0,1),horizon=H*.18,bottom=H*1.02;
-    const sy=bottom-(bottom-horizon)*Math.pow(u,.78),perspective=1.18-.98*Math.pow(u,.88);
-    return {x:W/2+lateral*perspective*(W/760),y:sy,scale:perspective*(W/760),visible:forward>-140&&forward<view+170,forward};
+    const fx=Math.cos(camAngle),fy=Math.sin(camAngle);
+    const rx=-fy,ry=fx;
+    const dx=x-camX,dy=y-camY;
+
+    const forward=dx*fx+dy*fy;
+    const lateral=dx*rx+dy*ry;
+
+    const near=150;
+    const depth=Math.max(24,forward+near);
+    const focal=H*.82;
+    const scale=focal/depth;
+
+    const horizon=H*.18;
+    const screenX=W*.5+lateral*scale;
+    const screenY=horizon+(camHeight*scale);
+
+    return {
+      x:screenX,
+      y:screenY,
+      scale:scale,
+      visible:forward>-120&&forward<1450&&screenY>-120&&screenY<H+180,
+      forward
+    };
   }
 
   function drawFinishLine(){
@@ -526,7 +563,7 @@
       progress:45,segIndex:1,lastProgress:45,lastProgressAt:0,
       usedFunnels:new Set(),funnel:null
     }));
-    camLeaderId=0;camX=q.x-t.x*300;camY=q.y-t.y*300;camAngle=Math.atan2(t.y,t.x);camS=45;
+    camLeaderId=0;camX=q.x-t.x*300;camY=q.y-t.y*300;camAngle=Math.atan2(t.y,t.x);camS=45;camHeight=250;
     timerEl.textContent='00.0';updateHud();draw();
   }
 
