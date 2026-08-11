@@ -115,11 +115,21 @@
       m.x=f.x;m.y=f.y;
       m.vx=t.x*speed;m.vy=t.y*speed;
       m.progress=f.exitS;`,
-`      const t=forwardTangentAtS(f.exitS,105);
+`      // Catch the marble on the lower track just beyond the drain. The visual
+      // drop still happens through the centre hole, but the 2D physics resumes
+      // fully inside the downstream rails rather than on the collision-free seam.
+      const landingS=Math.min(totalLength-80,f.exitS+48);
+      const landing=pointAtS(landingS);
+      const t=forwardTangentAtS(landingS,95);
       const speed=Math.max(185,Math.hypot(m.vx,m.vy)*.88);
-      m.x=f.x;m.y=f.y;
-      m.vx=t.x*speed;m.vy=t.y*speed;
-      m.progress=f.exitS;`
+
+      m.x=landing.x;
+      m.y=landing.y;
+      m.vx=t.x*speed;
+      m.vy=t.y*speed;
+      m.progress=landingS;
+      m.lastProgress=landingS;
+      m.lastProgressAt=0;`
   );
 
   s=s.replace(
