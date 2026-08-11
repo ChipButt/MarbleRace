@@ -115,14 +115,28 @@
       const s=totalLength*frac;
       const scale=c.funnelSize||1;
       const outerR=158*scale,holeR=30*scale;
-      const entryS=clamp(s-125,80,totalLength-400);
-      const exitS=clamp(s+190,entryS+220,totalLength-100);
-      const q=pointAtS(entryS),t=tangentAtS(entryS,65),nx=-t.y,ny=t.x;
+      const centre=pointAtS(s);
+      const inT=tangentAtS(s-90,70);
+      const outT=tangentAtS(s+90,70);
       const side=i%2===0?1:-1;
-      const bowlX=q.x-nx*side*(outerR-R-4);
-      const bowlY=q.y-ny*side*(outerR-R-4);
-      const baseAngle=Math.atan2(q.y-bowlY,q.x-bowlX);
-      funnels.push({id:i,s,entryS,exitS,x:bowlX,y:bowlY,outerR,holeR,side,baseAngle,depth:135*scale});
+
+      const entryS=clamp(s-outerR*1.15,80,totalLength-500);
+      const exitS=clamp(s+outerR*.95,entryS+outerR*1.45,totalLength-100);
+
+      const inNx=-inT.y,inNy=inT.x;
+      const entryX=centre.x+inNx*side*(outerR-R-3);
+      const entryY=centre.y+inNy*side*(outerR-R-3);
+      const baseAngle=Math.atan2(entryY-centre.y,entryX-centre.x);
+
+      funnels.push({
+        id:i,s,entryS,exitS,
+        x:centre.x,y:centre.y,
+        outerR,holeR,side,baseAngle,
+        depth:135*scale,
+        entryX,entryY,
+        inTx:inT.x,inTy:inT.y,
+        outTx:outT.x,outTy:outT.y
+      });
     });
 
     const xs=path.map(p=>p.x),ys=path.map(p=>p.y);
@@ -217,17 +231,18 @@
 
   function enterFunnel(m,f,near){
     const lane=clamp(near.lateral/(TRACK_HALF-R),-1,1);
-    const angle=f.baseAngle+lane*.26*f.side;
+    const angle=f.baseAngle+lane*.20*f.side;
     const rim=f.outerR-R-3;
     m.x=f.x+Math.cos(angle)*rim;
     m.y=f.y+Math.sin(angle)*rim;
+
     const speed=Math.max(120,Math.hypot(m.vx,m.vy));
     const rx=Math.cos(angle),ry=Math.sin(angle);
     const tx=-ry*f.side,ty=rx*f.side;
-    const tangential=m.vx*tx+m.vy*ty;
-    const radial=m.vx*rx+m.vy*ry;
-    const tanSpeed=(Math.abs(tangential)>.35*speed?tangential:Math.sign(tangential||1)*speed*.72);
-    const inward=Math.min(radial,-speed*(.10+.13*Math.abs(lane)));
+    const existingTan=m.vx*tx+m.vy*ty;
+    const tanSpeed=Math.sign(existingTan||1)*Math.max(Math.abs(existingTan),speed*.82);
+    const inward=-speed*(.08+.10*Math.abs(lane));
+
     m.vx=tx*tanSpeed+rx*inward;
     m.vy=ty*tanSpeed+ry*inward;
     m.funnel={id:f.id,f};
@@ -249,14 +264,18 @@
     const f=m.funnel.f;
     let dx=m.x-f.x,dy=m.y-f.y,d=Math.hypot(dx,dy)||1;
     let rx=dx/d,ry=dy/d;
+
     const depthFactor=1+2.2*Math.pow(clamp(1-d/f.outerR,0,1),2);
     const omega2=18.5*depthFactor;
     m.vx-=dx*omega2*dt;
     m.vy-=dy*omega2*dt;
+
     const drag=Math.exp(-.095*dt);
     m.vx*=drag;m.vy*=drag;
     m.x+=m.vx*dt;m.y+=m.vy*dt;
+
     dx=m.x-f.x;dy=m.y-f.y;d=Math.hypot(dx,dy)||1;rx=dx/d;ry=dy/d;
+
     const rim=f.outerR-R;
     if(d>rim){
       const pen=d-rim;
@@ -264,8 +283,10 @@
       const vn=m.vx*rx+m.vy*ry;
       if(vn>0){m.vx-=1.78*vn*rx;m.vy-=1.78*vn*ry}
     }
+
     const radialFraction=clamp(1-d/f.outerR,0,1);
     m.progress=f.entryS+radialFraction*(f.exitS-f.entryS)*.94;
+
     if(d<f.holeR+R*.30){
       const q=pointAtS(f.exitS),t=tangentAtS(f.exitS,60);
       const speed=Math.max(185,Math.hypot(m.vx,m.vy)*.88);
@@ -328,6 +349,7 @@
     const active=marbles.filter(m=>!m.finished);if(!active.length)return;
     const lead=active.reduce((a,b)=>b.progress>a.progress?b:a);
     const relevant=active.filter(m=>lead.progress-m.progress<620);
+
     let wx=0,wy=0,wt=0;
     for(const m of relevant){
       const gap=lead.progress-m.progress,w=m.id===lead.id?3.2:Math.max(.45,1.5-gap/600);
@@ -335,6 +357,7 @@
     }
     const focusX=wx/wt,focusY=wy/wt;
     let targetX,targetY,targetAngle,targetHeight;
+
     if(lead.funnel){
       const f=lead.funnel.f,t=tangentAtS(f.entryS,100);
       targetAngle=Math.atan2(t.y,t.x);targetX=f.x-t.x*360;targetY=f.y-t.y*360;targetHeight=340;
@@ -346,6 +369,7 @@
       targetY=focusY-t.y*(295+clamp(spread*.35,0,110));
       targetHeight=245+clamp(spread*.28,0,105);
     }
+
     camX+=(targetX-camX)*.06;camY+=(targetY-camY)*.06;camHeight+=(targetHeight-camHeight)*.05;
     let da=((targetAngle-camAngle+Math.PI*3)%(Math.PI*2))-Math.PI;
     const maxTurn=Math.abs(da)>.7?.06:Math.abs(da)>.3?.045:.028;
@@ -377,16 +401,70 @@
     if(idx.length<2)return;
     const left=idx.map(i=>project(mesh.left[i].x,mesh.left[i].y));
     const right=idx.map(i=>project(mesh.right[i].x,mesh.right[i].y));
+
     ctx.beginPath();ctx.moveTo(left[0].x,left[0].y);left.slice(1).forEach(p=>ctx.lineTo(p.x,p.y));
     for(let i=right.length-1;i>=0;i--)ctx.lineTo(right[i].x,right[i].y);
     ctx.closePath();
     const g=ctx.createLinearGradient(0,H*.12,0,H);g.addColorStop(0,'#333d55');g.addColorStop(1,'#20283a');
     ctx.fillStyle=g;ctx.fill();
+
     [left,right].forEach(edge=>{
       ctx.beginPath();ctx.moveTo(edge[0].x,edge[0].y);edge.slice(1).forEach(p=>ctx.lineTo(p.x,p.y));
       ctx.strokeStyle='#aab6cb';ctx.lineWidth=8;ctx.lineJoin='round';ctx.lineCap='round';ctx.stroke();
       ctx.strokeStyle='#526078';ctx.lineWidth=3;ctx.stroke();
     });
+  }
+
+  function drawConnectorStrip(points,halfWidth){
+    if(points.length<2)return;
+    const left=[],right=[];
+    for(let i=0;i<points.length;i++){
+      const a=points[Math.max(0,i-1)],b=points[Math.min(points.length-1,i+1)];
+      const dx=b.x-a.x,dy=b.y-a.y,L=Math.hypot(dx,dy)||1;
+      const nx=-dy/L,ny=dx/L;
+      left.push(project3D(points[i].x+nx*halfWidth,points[i].y+ny*halfWidth,points[i].z||0));
+      right.push(project3D(points[i].x-nx*halfWidth,points[i].y-ny*halfWidth,points[i].z||0));
+    }
+    ctx.beginPath();ctx.moveTo(left[0].x,left[0].y);
+    for(let i=1;i<left.length;i++)ctx.lineTo(left[i].x,left[i].y);
+    for(let i=right.length-1;i>=0;i--)ctx.lineTo(right[i].x,right[i].y);
+    ctx.closePath();ctx.fillStyle='#283147';ctx.fill();
+    for(const edge of [left,right]){
+      ctx.beginPath();ctx.moveTo(edge[0].x,edge[0].y);
+      for(let i=1;i<edge.length;i++)ctx.lineTo(edge[i].x,edge[i].y);
+      ctx.strokeStyle='#aab6cb';ctx.lineWidth=6;ctx.lineJoin='round';ctx.lineCap='round';ctx.stroke();
+    }
+  }
+
+  function drawFunnelConnections(f){
+    const start=pointAtS(f.entryS);
+    const st=tangentAtS(f.entryS,55);
+    const inlet=[];
+    const radialX=f.entryX-f.x,radialY=f.entryY-f.y,radialL=Math.hypot(radialX,radialY)||1;
+    const tx=-radialY/radialL*f.side,ty=radialX/radialL*f.side;
+    const c1={x:start.x+st.x*75,y:start.y+st.y*75};
+    const c2={x:f.entryX-tx*70,y:f.entryY-ty*70};
+    for(let i=0;i<=20;i++){
+      const u=i/20,o=1-u;
+      inlet.push({
+        x:o*o*o*start.x+3*o*o*u*c1.x+3*o*u*u*c2.x+u*u*u*f.entryX,
+        y:o*o*o*start.y+3*o*o*u*c1.y+3*o*u*u*c2.y+u*u*u*f.entryY,
+        z:0
+      });
+    }
+    drawConnectorStrip(inlet,TRACK_HALF*.72);
+
+    const end=pointAtS(f.exitS);
+    const outlet=[];
+    for(let i=0;i<=18;i++){
+      const u=i/18,e=u*u*(3-2*u);
+      outlet.push({
+        x:f.x+(end.x-f.x)*e,
+        y:f.y+(end.y-f.y)*e,
+        z:f.depth*(1-u)
+      });
+    }
+    drawConnectorStrip(outlet,TRACK_HALF*.66);
   }
 
   function projectedRingPoints(f,radius,z,steps=72){
@@ -415,27 +493,33 @@
   function drawFunnel(f){
     const centre=project3D(f.x,f.y,f.depth);
     if(!centre.visible)return;
+
     const ringCount=28,steps=72;
     const rings=[];
+
     for(let j=0;j<=ringCount;j++){
       const u=j/ringCount;
       const radius=f.outerR*(1-u*.84);
       const z=f.depth*Math.pow(u,1.55);
       rings.push(projectedRingPoints(f,radius,z,steps));
     }
+
     for(let j=0;j<ringCount;j++){
       const outer=rings[j],inner=rings[j+1];
       const u=(j+.5)/ringCount;
       const light=Math.round(185-115*Math.pow(u,.9));
       const blue=Math.min(210,light+18);
       const fill=`rgb(${light},${Math.min(205,light+8)},${blue})`;
+
       for(let i=0;i<steps;i++){
         const n=(i+1)%steps;
         drawPolygon([outer[i],outer[n],inner[n],inner[i]],fill);
       }
     }
+
     const rim=projectedRingPoints(f,f.outerR,0,steps);
     drawPolygon(rim,null,'#e4eaf2',Math.max(2,3*centre.scale));
+
     const hole=projectedRingPoints(f,f.holeR,f.depth,steps);
     drawPolygon(hole,'#040609','#171b24',Math.max(1.5,2*centre.scale));
   }
@@ -457,31 +541,26 @@
     sky.addColorStop(0,'#17223e');sky.addColorStop(.55,'#10182d');sky.addColorStop(1,'#070b14');
     ctx.fillStyle=sky;ctx.fillRect(0,0,W,H);
     updateCamera();
+
     const viewStart=Math.max(0,camS-500),viewEnd=Math.min(totalLength,camS+1550);
     const gaps=funnels
       .map(f=>({a:f.entryS+4,b:f.exitS-4}))
       .filter(g=>g.b>viewStart&&g.a<viewEnd)
       .sort((a,b)=>a.a-b.a);
+
     let cursor=viewStart;
     for(const g of gaps){
       if(g.a>cursor)drawTrackSegment(cursor,Math.min(g.a,viewEnd));
       cursor=Math.max(cursor,g.b);
     }
     if(cursor<viewEnd)drawTrackSegment(cursor,viewEnd);
-    funnels.forEach(f=>{
-      if(f.exitS>viewStart&&f.entryS<viewEnd)drawFunnel(f);
-    });
+
     funnels.forEach(f=>{
       if(f.exitS<viewStart||f.entryS>viewEnd)return;
-      for(const ss of [f.entryS,f.exitS]){
-        const q=pointAtS(ss),t=tangentAtS(ss,55),nx=-t.y,ny=t.x;
-        const a=project(q.x+nx*TRACK_HALF,q.y+ny*TRACK_HALF);
-        const b=project(q.x-nx*TRACK_HALF,q.y-ny*TRACK_HALF);
-        ctx.strokeStyle='#aab6cb';
-        ctx.lineWidth=Math.max(3,5*(a.scale+b.scale)*.5);
-        ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
-      }
+      drawFunnel(f);
+      drawFunnelConnections(f);
     });
+
     pegs.forEach(p=>{
       if(inFunnelGap(p.s)||Math.abs(p.s-camS)>1200)return;
       const q=project(p.x,p.y);if(!q.visible)return;
@@ -489,6 +568,7 @@
       ctx.fillStyle='#d7a141';ctx.beginPath();ctx.arc(q.x,q.y,rr,0,Math.PI*2);ctx.fill();
       ctx.fillStyle='#fff5';ctx.beginPath();ctx.arc(q.x-rr*.3,q.y-rr*.33,rr*.25,0,Math.PI*2);ctx.fill();
     });
+
     drawFinish();
   }
 
@@ -500,9 +580,11 @@
       const inward=clamp(1-d/f.outerR,0,1);
       z=f.depth*Math.pow(inward,1.55);
     }
+
     const p=project3D(m.x,m.y,z);
     if(!p.visible)return;
     const r=Math.max(4,R*p.scale*1.3);
+
     ctx.save();ctx.translate(p.x,p.y);ctx.rotate(m.angle);
     ctx.shadowColor='#000b';ctx.shadowBlur=Math.max(3,r*.45);ctx.shadowOffsetY=Math.max(2,r*.3);
     const g=ctx.createRadialGradient(-r*.35,-r*.4,2,0,0,r);
